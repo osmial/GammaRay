@@ -11,6 +11,7 @@ set_target_properties(gammaray_signalmonitor_shared PROPERTIES POSITION_INDEPEND
 set(gammaray_signalmonitor_srcs
   signalmonitor.cpp
   signalhistorymodel.cpp
+  signalhistoryproxy.cpp
   relativeclock.cpp
 )
 
