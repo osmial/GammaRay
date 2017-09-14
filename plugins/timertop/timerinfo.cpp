@@ -57,7 +57,7 @@ uint qHash(const TimerId &id)
         return ::qHash(id.m_timerAddress);
 
     case TimerId::QObjectType:
-        return ::qHash(id.m_timerId) + ::qHash(id.m_timerAddress);
+        return ::qHash(id.m_timerId);
     }
 
     return 0;
@@ -83,9 +83,9 @@ TimerId::TimerId(QObject *timer)
     }
 }
 
-TimerId::TimerId(int timerId, QObject *receiver)
+TimerId::TimerId(int timerId)
     : m_type(QObjectType)
-    , m_timerAddress(receiver)
+    , m_timerAddress(nullptr)
     , m_timerId(timerId)
 {
     Q_ASSERT(m_timerId != -1);
@@ -125,7 +125,7 @@ bool TimerId::operator==(const TimerId &other) const
         return m_timerAddress == other.m_timerAddress;
 
     case TimerId::QObjectType:
-        return m_timerId == other.m_timerId && m_timerAddress == other.m_timerAddress;
+        return m_timerId == other.m_timerId;
     }
 
     return false;
@@ -216,4 +216,23 @@ void TimerIdInfo::update(const TimerId &id, QObject *receiver)
 bool TimerIdInfo::isValid() const
 {
     return !lastReceiverObject.isNull();
+}
+
+bool TimerIdInfo::operator==(const TimerIdInfo &other) const
+{
+    return timerId == other.timerId &&
+            interval == other.interval &&
+            totalWakeups == other.totalWakeups &&
+            lastReceiverAddress == other.lastReceiverAddress &&
+//            lastReceiverObject == other.lastReceiverObject &&
+            objectName == other.objectName &&
+            state == other.state &&
+            wakeupsPerSec == other.wakeupsPerSec &&
+            timePerWakeup == other.timePerWakeup &&
+            maxWakeupTime == other.maxWakeupTime;
+}
+
+bool TimerIdInfo::operator!=(const TimerIdInfo &other) const
+{
+    return !operator==(other);
 }

@@ -81,7 +81,27 @@ struct TimerIdData
 
     void update(const TimerId &id, QObject *receiver = nullptr)
     {
+        // If the receiver changed, the timer was stopped / restarted and is no longer the same timer.
+        if (id.type() == TimerId::QObjectType && info.lastReceiverAddress != receiver) {
+            info.totalWakeups = 0;
+            info.lastReceiverAddress = 0;
+            info.lastReceiverObject = nullptr;
+            info.state = TimerIdInfo::InvalidState;
+            info.wakeupsPerSec = 0.0;
+            info.timePerWakeup = 0.0;
+            info.maxWakeupTime = 0;
+
+            totalWakeupsEvents = 0;
+            if (functionCallTimer.active())
+                functionCallTimer.stop();
+            timeoutEvents.clear();
+            changed = true;
+        }
+
+        const auto oldInfo = info;
         info.update(id, receiver);
+        if (oldInfo != info)
+            changed = true;
     }
 
     void addEvent(const GammaRay::TimeoutEvent &event)
@@ -262,7 +282,7 @@ bool TimerModel::eventNotifyCallback(void *data[])
 
         {
             QMutexLocker locker(&s_timerModel->m_mutex);
-            const TimerId id(timerEvent->timerId(), receiver);
+            const TimerId id(timerEvent->timerId());
             auto it = s_timerModel->m_gatheredTimersData.find(id);
 
             if (it == s_timerModel->m_gatheredTimersData.end()) {
@@ -603,7 +623,7 @@ void TimerModel::applyChanges(const GammaRay::TimerIdInfoHash &changes)
 
     // Update existing free timers entries
     for (auto it = m_freeTimersInfo.begin(), end = m_freeTimersInfo.end(); it != end; ++it) {
-        const TimerId id((*it).timerId, (*it).lastReceiverAddress);
+        const TimerId id((*it).timerId);
         const auto cit = changes.constFind(id);
 
         if (cit != changes.constEnd()) {

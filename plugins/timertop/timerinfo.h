@@ -54,7 +54,7 @@ public:
 
     TimerId();
     explicit TimerId(QObject *timer);
-    explicit TimerId(int timerId, QObject *receiver);
+    explicit TimerId(int timerId);
 
     Type type() const;
     QObject* address() const;
@@ -97,6 +97,9 @@ struct TimerIdInfo
     void update(const TimerId &id, QObject *receiver = nullptr);
 
     bool isValid() const;
+
+    bool operator==(const TimerIdInfo &other) const;
+    bool operator!=(const TimerIdInfo &other) const;
 
     int timerId;
     int interval;
