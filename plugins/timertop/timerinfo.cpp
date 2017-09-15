@@ -136,6 +136,12 @@ void TimerIdInfo::update(const TimerId &id, QObject *receiver)
     QObject *object = receiver ? receiver : id.address();
 
     state = InvalidState;
+
+    // The timer became invalid
+    if (!object) {
+        return;
+    }
+
     interval = 0;
 
     switch (id.type()) {
@@ -215,7 +221,7 @@ void TimerIdInfo::update(const TimerId &id, QObject *receiver)
 
 bool TimerIdInfo::isValid() const
 {
-    return !lastReceiverObject.isNull();
+    return !lastReceiverObject.isNull() && state != InvalidState;
 }
 
 bool TimerIdInfo::operator==(const TimerIdInfo &other) const

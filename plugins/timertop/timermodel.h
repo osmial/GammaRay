@@ -103,6 +103,7 @@ private:
 
     const TimerIdInfo *findTimerInfo(const QModelIndex &index) const;
     bool canHandleCaller(QObject *caller, int methodIndex) const;
+    void checkDispatcherStatus(QObject *object);
 
     static bool eventNotifyCallback(void *data[]);
 

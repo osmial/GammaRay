@@ -39,6 +39,7 @@
 #include <QTimerEvent>
 #include <QTime>
 #include <QTimer>
+#include <QAbstractEventDispatcher>
 
 #include <QInternal>
 
@@ -255,6 +256,42 @@ bool TimerModel::canHandleCaller(QObject *caller, int methodIndex) const
             (isQQmlTimer && m_qmlTimerTriggeredIndex == methodIndex);
 }
 
+void TimerModel::checkDispatcherStatus(QObject *object)
+{
+    // m_mutex have to be locked!!
+    static QHash<QAbstractEventDispatcher *, QTime> dispatcherChecks;
+    QAbstractEventDispatcher *dispatcher = QAbstractEventDispatcher::instance(object->thread());
+    auto it = dispatcherChecks.find(dispatcher);
+
+    if (it == dispatcherChecks.end()) {
+        it = dispatcherChecks.insert(dispatcher, QTime());
+        it.value().start();
+    }
+
+    if (it.value().elapsed() < 5000)
+        return;
+
+    for (auto gIt = m_gatheredTimersData.begin(), end = m_gatheredTimersData.end(); gIt != end; ++gIt) {
+        QObject *gItObject = gIt.value().info.lastReceiverObject;
+        QAbstractEventDispatcher *gItDispatcher = QAbstractEventDispatcher::instance(gItObject ? gItObject->thread() : nullptr);
+
+        if (gItDispatcher != dispatcher)
+            continue;
+
+#if QT_VERSION >= QT_VERSION_CHECK(5, 0, 0)
+        const int remaining = dispatcher->remainingTime(gIt.key().timerId());
+#else
+        const int remaining = gIt.value().isValid() ? 0 : -1;
+#endif
+
+        // Timer inactive or invalid
+        if (remaining == -1)
+            gIt.value().update(gIt.key(), gItObject);
+    }
+
+    it.value().restart();
+}
+
 bool TimerModel::eventNotifyCallback(void *data[])
 {
     Q_ASSERT(TimerModel::isInitialized());
@@ -294,6 +331,7 @@ bool TimerModel::eventNotifyCallback(void *data[])
             it.value().update(id, receiver);
             it.value().addEvent(timeoutEvent);
 
+            s_timerModel->checkDispatcherStatus(receiver);
             s_timerModel->m_triggerPushChangesMethod.invoke(s_timerModel, Qt::QueuedConnection);
         }
     }
@@ -379,6 +417,7 @@ void TimerModel::postSignalActivate(QObject *caller, int methodIndex)
     it.value().update(id);
     it.value().addEvent(timeoutEvent);
 
+    checkDispatcherStatus(caller);
     m_triggerPushChangesMethod.invoke(this, Qt::QueuedConnection);
 }
 
@@ -557,12 +596,6 @@ void TimerModel::pushChanges()
 
     infoHash.reserve(m_gatheredTimersData.count());
     for (auto it = m_gatheredTimersData.begin(); it != m_gatheredTimersData.end();) {
-        // Invalidated during the sync delay, remove entry
-        if (!it.value().isValid()) {
-            it = m_gatheredTimersData.erase(it);
-            continue;
-        }
-
         TimerIdData &itInfo = it.value();
 
         if (itInfo.changed) {
@@ -675,15 +708,18 @@ void TimerModel::applyChanges(const GammaRay::TimerIdInfoHash &changes)
     // Check for invalid free timers
     // Invalid QQmlTimer/QTimer are handled in the source model begin remove rows slot already.
     // We considere free timers invalid if an id is used by a qtimer already and free timer id
-    // is not part of this changes.
+    // is not part of this changes or if it's state moved to invalid.
     QVector<QPair<int, int>> removeRowsRanges; // pair of first/last
+    QVector<TimerId> gatheredIdsToRemove;
 
     for (int row = 0; row < m_freeTimersInfo.count(); ++row) {
         const TimerIdInfo &it = m_freeTimersInfo[row];
 
         // This is an invalid free timer
-        if (qtimerIds.contains(it.timerId)) {
+        if (qtimerIds.contains(it.timerId) || it.state == TimerIdInfo::InvalidState) {
             const int i = m_sourceModel->rowCount() + row;
+
+            gatheredIdsToRemove << TimerId(it.timerId);
 
             if (removeRowsRanges.isEmpty() || removeRowsRanges.last().second != i - 1) {
                 removeRowsRanges << qMakePair(i, i);
@@ -691,6 +727,14 @@ void TimerModel::applyChanges(const GammaRay::TimerIdInfoHash &changes)
                 removeRowsRanges.last().second = i;
             }
         }
+    }
+
+    // Remove invalid ids from gathered data
+    if (!gatheredIdsToRemove.isEmpty()) {
+        QMutexLocker locker(&m_mutex);
+
+        foreach (const TimerId &id, gatheredIdsToRemove)
+            m_gatheredTimersData.remove(id);
     }
 
     // Inform model about rows removal
